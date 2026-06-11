@@ -28,7 +28,14 @@
     targetCoverageDays: 10,
     minStockBuffer: 3,
     shopeeAdvertisedStockLowAlert: 5,
-    maxBatchUnits: 60
+    maxBatchUnits: 60,
+    electricityCostKwh: 1.14,
+    defaultMarkup: 2.5,
+    shopeeFeePercent: 20,
+    shopeeFixedFee: 5,
+    expectedMonthlyRevenue: 2200,
+    fixedMonthlyCosts: 0,
+    failurePercent: 10
   });
 
   const emptyState = () => ({
@@ -47,23 +54,23 @@
       {
         sku: 'EXU-CHAVEIRO-PRETO', name: 'Chaveiro Exu Tranca Ruas', category: 'Chaveiro',
         realStock: 5, shopeeAdvertisedStock: 999, salePrice: 24.9, estimatedMargin: 9.4, active: true,
-        recipe: { material: 'PLA', color: 'Preto', gramsPerUnit: 18, wastePercent: 10, printTimeMinutes: 42 }
+        recipe: { material: 'PLA', color: 'Preto', gramsPerUnit: 18, wastePercent: 10, printTimeMinutes: 42, printerPowerWatts: 350, packagingCost: 1.5, extraCost: 0 }
       },
       {
         sku: 'SUP-CEL-BRANCO', name: 'Suporte de Celular Minimalista', category: 'Suporte',
         realStock: 12, shopeeAdvertisedStock: 200, salePrice: 34.9, estimatedMargin: 12.5, active: true,
-        recipe: { material: 'PLA', color: 'Branco', gramsPerUnit: 65, wastePercent: 8, printTimeMinutes: 130 }
+        recipe: { material: 'PLA', color: 'Branco', gramsPerUnit: 65, wastePercent: 8, printTimeMinutes: 130, printerPowerWatts: 350, packagingCost: 2, extraCost: 0 }
       },
       {
         sku: 'MINI-VERMELHA', name: 'Miniatura Decorativa Vermelha', category: 'Miniatura',
         realStock: 2, shopeeAdvertisedStock: 4, salePrice: 39.9, estimatedMargin: 15.2, active: true,
-        recipe: { material: 'PLA', color: 'Vermelho', gramsPerUnit: 42, wastePercent: 15, printTimeMinutes: 95 }
+        recipe: { material: 'PLA', color: 'Vermelho', gramsPerUnit: 42, wastePercent: 15, printTimeMinutes: 95, printerPowerWatts: 350, packagingCost: 2, extraCost: 0 }
       }
     ],
     filaments: [
-      { material: 'PLA', color: 'Preto', brand: 'Genérico', currentWeightGrams: 720, active: true },
-      { material: 'PLA', color: 'Branco', brand: 'Genérico', currentWeightGrams: 430, active: true },
-      { material: 'PLA', color: 'Vermelho', brand: 'Genérico', currentWeightGrams: 1100, active: true }
+      { material: 'PLA', color: 'Preto', brand: 'Genérico', currentWeightGrams: 720, initialWeightGrams: 1000, rollCost: 60, active: true },
+      { material: 'PLA', color: 'Branco', brand: 'Genérico', currentWeightGrams: 430, initialWeightGrams: 1000, rollCost: 60, active: true },
+      { material: 'PLA', color: 'Vermelho', brand: 'Genérico', currentWeightGrams: 1100, initialWeightGrams: 1000, rollCost: 65, active: true }
     ],
     sales: [
       { sku: 'EXU-CHAVEIRO-PRETO', quantity: 4, price: 24.9, soldAt: daysAgo(0) },
@@ -124,6 +131,75 @@
     return grams * (1 + waste / 100);
   }
 
+  function roundUpMoney(value) {
+    return Math.ceil(numberOr(value));
+  }
+
+  function filamentCostPerGram(filament) {
+    const initialWeight = Math.max(0, numberOr(filament?.initialWeightGrams, 1000));
+    const rollCost = Math.max(0, numberOr(filament?.rollCost));
+    return initialWeight > 0 ? rollCost / initialWeight : 0;
+  }
+
+  function findBestFilament(material, color) {
+    const key = filamentKey(material, color);
+    const same = state.filaments.filter((f) => f.active !== false && filamentKey(f.material, f.color) === key);
+    if (!same.length) return null;
+    const withCost = same.find((f) => filamentCostPerGram(f) > 0);
+    return withCost || same[0];
+  }
+
+  function calculatePricing(product) {
+    const settings = state.settings || defaultSettings();
+    const recipe = product.recipe || {};
+    const filament = findBestFilament(recipe.material, recipe.color);
+    const gramsEach = gramsPerUnitWithWaste(product);
+    const costPerGram = filamentCostPerGram(filament);
+    const filamentCost = gramsEach * costPerGram;
+    const energyCost = (Math.max(0, numberOr(recipe.printerPowerWatts, 350)) / 1000)
+      * (Math.max(0, numberOr(recipe.printTimeMinutes)) / 60)
+      * Math.max(0, numberOr(settings.electricityCostKwh, 1.14));
+    const packagingCost = Math.max(0, numberOr(recipe.packagingCost));
+    const extraCost = Math.max(0, numberOr(recipe.extraCost));
+    const directCost = filamentCost + energyCost + packagingCost + extraCost;
+    const fixedRatio = Math.max(0, numberOr(settings.expectedMonthlyRevenue)) > 0
+      ? Math.max(0, numberOr(settings.fixedMonthlyCosts)) / Math.max(1, numberOr(settings.expectedMonthlyRevenue))
+      : 0;
+    const indirectCost = directCost * fixedRatio;
+    const failureCost = (directCost + indirectCost) * (Math.max(0, numberOr(settings.failurePercent, 10)) / 100);
+    const totalCost = directCost + indirectCost + failureCost;
+    const markup = Math.max(0, numberOr(settings.defaultMarkup, 2.5));
+    const suggestedClientPrice = roundUpMoney(totalCost * markup);
+    const shopeeFeePercent = Math.max(0, numberOr(settings.shopeeFeePercent, 20)) / 100;
+    const shopeeFixedFee = Math.max(0, numberOr(settings.shopeeFixedFee));
+    const suggestedShopeePrice = roundUpMoney((suggestedClientPrice * shopeeFeePercent) + suggestedClientPrice + shopeeFixedFee);
+    const currentPrice = Math.max(0, numberOr(product.salePrice));
+    const shopeeNetAtCurrent = currentPrice - (currentPrice * shopeeFeePercent) - shopeeFixedFee;
+    const profitAtCurrent = shopeeNetAtCurrent - totalCost;
+    const profitAtSuggested = suggestedShopeePrice - (suggestedShopeePrice * shopeeFeePercent) - shopeeFixedFee - totalCost;
+    return {
+      filament,
+      gramsEach,
+      costPerGram,
+      filamentCost,
+      energyCost,
+      packagingCost,
+      extraCost,
+      directCost,
+      indirectCost,
+      failureCost,
+      totalCost,
+      markup,
+      suggestedClientPrice,
+      suggestedShopeePrice,
+      shopeeFeePercent,
+      shopeeFixedFee,
+      currentPrice,
+      profitAtCurrent,
+      profitAtSuggested
+    };
+  }
+
   function filamentKey(material, color) {
     return `${normalizeKey(material)}::${normalizeKey(color)}`;
   }
@@ -170,6 +246,7 @@
     for (const product of state.products.filter((p) => p.active !== false)) {
       const recentSales = salesInWindow(product.sku, demandWindowDays);
       const revenue = revenueInWindow(product.sku, demandWindowDays);
+      const pricing = calculatePricing(product);
       const dailyVelocity = recentSales / demandWindowDays;
       const targetStock = Math.ceil(dailyVelocity * targetCoverageDays + minStockBuffer);
       const realStock = Math.max(0, numberOr(product.realStock));
@@ -186,7 +263,7 @@
       const filamentNeeded = suggestedUnits * gramsEach;
       allocation.set(key, alreadyAllocated + filamentNeeded);
 
-      const score = Math.round((dailyVelocity * 14) + Math.max(0, 10 - Math.min(daysOfStockLeft, 10)) * 7 + numberOr(product.estimatedMargin) * 1.5);
+      const score = Math.round((dailyVelocity * 14) + Math.max(0, 10 - Math.min(daysOfStockLeft, 10)) * 7 + Math.max(0, pricing.profitAtSuggested) * 1.5);
       let action = 'hold';
       let priority = 'Baixa';
       let title = 'Não produzir agora';
@@ -206,6 +283,12 @@
 
       if (numberOr(product.shopeeAdvertisedStock) <= lowAdvertisedStock) {
         alerts.push(`Aumentar estoque anunciado na Shopee: ${product.name} está com ${numberOr(product.shopeeAdvertisedStock)} anunciado.`);
+      }
+      if (gramsEach > 0 && (!pricing.filament || pricing.costPerGram <= 0)) {
+        alerts.push(`Cadastrar custo do filamento: ${product.name} usa ${recipe.material || '-'} ${recipe.color || ''}, mas o app não encontrou preço por kg/rolo.`);
+      }
+      if (pricing.currentPrice > 0 && pricing.profitAtCurrent < 0) {
+        alerts.push(`Preço atual abaixo do custo: ${product.name} está com lucro negativo estimado de ${formatBRL(pricing.profitAtCurrent)} por unidade.`);
       }
 
       recommendations.push({
@@ -229,8 +312,9 @@
         availableFilamentBeforeAllocation: remainingGrams,
         material: recipe.material,
         color: recipe.color,
-        estimatedMargin: numberOr(product.estimatedMargin),
-        estimatedProfit: suggestedUnits * numberOr(product.estimatedMargin),
+        estimatedMargin: pricing.profitAtSuggested,
+        estimatedProfit: suggestedUnits * pricing.profitAtSuggested,
+        pricing,
         score
       });
     }
@@ -253,7 +337,7 @@
 
     const lines = [];
     if (toProduce.length) {
-      lines.push(`Produzir ${totalUnits} peça${totalUnits === 1 ? '' : 's'} agora, com lucro estimado de ${formatBRL(estimatedProfit)} antes de custos extras.`);
+      lines.push(`Produzir ${totalUnits} peça${totalUnits === 1 ? '' : 's'} agora, com lucro estimado de ${formatBRL(estimatedProfit)} usando a precificação configurada.`);
       lines.push(`Prioridade: ${toProduce.slice(0, 3).map((r) => `${r.productName} (${r.suggestedUnits})`).join(', ')}.`);
     } else {
       lines.push('Nenhum produto precisa ser produzido agora pelas regras atuais.');
@@ -291,7 +375,14 @@
         targetCoverageDays: cfgRes.data.dias_cobertura_desejada ?? 10,
         minStockBuffer: cfgRes.data.estoque_minimo_padrao ?? 3,
         shopeeAdvertisedStockLowAlert: cfgRes.data.alerta_estoque_shopee_minimo ?? 5,
-        maxBatchUnits: cfgRes.data.maximo_lote_recomendado ?? 60
+        maxBatchUnits: cfgRes.data.maximo_lote_recomendado ?? 60,
+        electricityCostKwh: cfgRes.data.custo_kwh ?? 1.14,
+        defaultMarkup: cfgRes.data.markup_padrao ?? 2.5,
+        shopeeFeePercent: cfgRes.data.taxa_shopee_percentual ?? 20,
+        shopeeFixedFee: cfgRes.data.taxa_fixa_shopee ?? 5,
+        expectedMonthlyRevenue: cfgRes.data.faturamento_previsto_mensal ?? 2200,
+        fixedMonthlyCosts: cfgRes.data.custos_fixos_mensais ?? 0,
+        failurePercent: cfgRes.data.percentual_falhas_padrao ?? 10
       } : defaultSettings();
 
       state = {
@@ -318,7 +409,10 @@
               color: recipe.cor || '',
               gramsPerUnit: numberOr(recipe.gramas_por_unidade),
               wastePercent: numberOr(recipe.perda_percentual, 10),
-              printTimeMinutes: numberOr(recipe.tempo_impressao_minutos)
+              printTimeMinutes: numberOr(recipe.tempo_impressao_minutos),
+              printerPowerWatts: numberOr(recipe.potencia_impressora_w, 350),
+              packagingCost: numberOr(recipe.custo_embalagem),
+              extraCost: numberOr(recipe.custo_extra)
             }
           };
         }),
@@ -328,6 +422,8 @@
           color: f.cor || '',
           brand: f.marca || '',
           currentWeightGrams: numberOr(f.peso_atual_g),
+          initialWeightGrams: numberOr(f.peso_inicial_g, 1000),
+          rollCost: numberOr(f.custo_rolo),
           active: f.ativo !== false
         })),
         sales: saleRows.map((s) => ({
@@ -358,7 +454,14 @@
       dias_cobertura_desejada: Math.max(1, Math.round(numberOr(state.settings.targetCoverageDays, 10))),
       estoque_minimo_padrao: Math.max(0, Math.round(numberOr(state.settings.minStockBuffer, 3))),
       alerta_estoque_shopee_minimo: Math.max(0, Math.round(numberOr(state.settings.shopeeAdvertisedStockLowAlert, 5))),
-      maximo_lote_recomendado: Math.max(1, Math.round(numberOr(state.settings.maxBatchUnits, 60)))
+      maximo_lote_recomendado: Math.max(1, Math.round(numberOr(state.settings.maxBatchUnits, 60))),
+      custo_kwh: Math.max(0, numberOr(state.settings.electricityCostKwh, 1.14)),
+      markup_padrao: Math.max(0, numberOr(state.settings.defaultMarkup, 2.5)),
+      taxa_shopee_percentual: Math.max(0, numberOr(state.settings.shopeeFeePercent, 20)),
+      taxa_fixa_shopee: Math.max(0, numberOr(state.settings.shopeeFixedFee, 5)),
+      faturamento_previsto_mensal: Math.max(0, numberOr(state.settings.expectedMonthlyRevenue, 2200)),
+      custos_fixos_mensais: Math.max(0, numberOr(state.settings.fixedMonthlyCosts, 0)),
+      percentual_falhas_padrao: Math.max(0, numberOr(state.settings.failurePercent, 10))
     };
     unwrap(await db.from('configuracoes').upsert(payload, { onConflict: 'user_id' }));
   }
@@ -409,6 +512,9 @@
       gramas_por_unidade: Math.max(0, numberOr(data.gramsPerUnit)),
       perda_percentual: Math.max(0, numberOr(data.wastePercent, 10)),
       tempo_impressao_minutos: Math.max(0, Math.round(numberOr(data.printTimeMinutes))),
+      potencia_impressora_w: Math.max(0, numberOr(data.printerPowerWatts, 350)),
+      custo_embalagem: Math.max(0, numberOr(data.packagingCost)),
+      custo_extra: Math.max(0, numberOr(data.extraCost)),
       ativo: true
     }, { onConflict: 'user_id,produto_id' }));
   }
@@ -428,7 +534,9 @@
       material,
       cor: color,
       marca: String(data.brand || '').trim() || null,
+      peso_inicial_g: Math.max(0, numberOr(data.initialWeightGrams, 1000)),
       peso_atual_g: Math.max(0, numberOr(data.currentWeightGrams)),
+      custo_rolo: Math.max(0, numberOr(data.rollCost)),
       ativo: true
     };
     if (id) unwrap(await db.from('filamentos').update(payload).eq('id', id).eq('user_id', currentUser.id));
@@ -522,7 +630,10 @@
         color: product.recipe.color,
         gramsPerUnit: product.recipe.gramsPerUnit,
         wastePercent: product.recipe.wastePercent,
-        printTimeMinutes: product.recipe.printTimeMinutes
+        printTimeMinutes: product.recipe.printTimeMinutes,
+        printerPowerWatts: product.recipe.printerPowerWatts,
+        packagingCost: product.recipe.packagingCost,
+        extraCost: product.recipe.extraCost
       });
     }
     await loadData();
@@ -559,7 +670,10 @@
         color: recipe.color,
         gramsPerUnit: recipe.gramsPerUnit,
         wastePercent: recipe.wastePercent,
-        printTimeMinutes: recipe.printTimeMinutes
+        printTimeMinutes: recipe.printTimeMinutes,
+        printerPowerWatts: recipe.printerPowerWatts,
+        packagingCost: recipe.packagingCost,
+        extraCost: recipe.extraCost
       });
     }
     await loadData();
@@ -644,6 +758,8 @@
           <span>${formatGrams(r.gramsEach)} por peça</span>
           <span>Gasta ${formatGrams(r.filamentNeeded)}</span>
           <span>${escapeHtml(r.material || '-')} ${escapeHtml(r.color || '')}</span>
+          <span>Custo unid. ${formatBRL(r.pricing?.totalCost)}</span>
+          <span>Preço Shopee sugerido ${formatBRL(r.pricing?.suggestedShopeePrice)}</span>
           <span>Lucro estimado ${formatBRL(r.estimatedProfit)}</span>
         </div>
       </article>
@@ -654,21 +770,24 @@
 
   function renderProducts() {
     const list = $('#productList');
-    list.innerHTML = state.products.length ? state.products.map((p) => `
+    list.innerHTML = state.products.length ? state.products.map((p) => {
+      const pricing = calculatePricing(p);
+      return `
       <article class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(p.name)}</div>
           <div class="item-sub">
             SKU ${escapeHtml(p.sku)} · Real: ${formatNumber(p.realStock)} · Anunciado Shopee: ${formatNumber(p.shopeeAdvertisedStock)}<br />
-            ${escapeHtml(p.recipe?.material || '-')} ${escapeHtml(p.recipe?.color || '')} · ${formatGrams(p.recipe?.gramsPerUnit)} + ${formatNumber(p.recipe?.wastePercent, 1)}% perda · ${formatBRL(p.salePrice)}
+            ${escapeHtml(p.recipe?.material || '-')} ${escapeHtml(p.recipe?.color || '')} · ${formatGrams(p.recipe?.gramsPerUnit)} + ${formatNumber(p.recipe?.wastePercent, 1)}% perda · ${formatBRL(p.salePrice)} atual<br />
+            Custo unid.: ${formatBRL(pricing.totalCost)} · Cliente: ${formatBRL(pricing.suggestedClientPrice)} · Shopee sugerido: ${formatBRL(pricing.suggestedShopeePrice)} · Lucro no preço atual: ${formatBRL(pricing.profitAtCurrent)}
           </div>
         </div>
         <div class="item-actions">
           <button class="link-button" data-action="edit-product" data-id="${escapeHtml(p.id)}" type="button">Editar</button>
           <button class="link-button danger" data-action="delete-product" data-id="${escapeHtml(p.id)}" type="button">Excluir</button>
         </div>
-      </article>
-    `).join('') : '<p class="empty-state">Nenhum produto cadastrado.</p>';
+      </article>`;
+    }).join('') : '<p class="empty-state">Nenhum produto cadastrado.</p>';
   }
 
   function renderFilaments() {
@@ -677,7 +796,7 @@
       <article class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(f.material)} ${escapeHtml(f.color)}</div>
-          <div class="item-sub">${escapeHtml(f.brand || 'Sem marca')} · Disponível: ${formatGrams(f.currentWeightGrams)}</div>
+          <div class="item-sub">${escapeHtml(f.brand || 'Sem marca')} · Disponível: ${formatGrams(f.currentWeightGrams)} · Rolo: ${formatGrams(f.initialWeightGrams)} por ${formatBRL(f.rollCost)} · ${formatBRL(filamentCostPerGram(f) * 1000)}/kg</div>
         </div>
         <div class="item-actions">
           <button class="link-button" data-action="edit-filament" data-id="${escapeHtml(f.id)}" type="button">Editar</button>
@@ -724,6 +843,9 @@
     form.gramsPerUnit.value = product.recipe?.gramsPerUnit || 0;
     form.wastePercent.value = product.recipe?.wastePercent || 0;
     form.printTimeMinutes.value = product.recipe?.printTimeMinutes || 0;
+    form.printerPowerWatts.value = product.recipe?.printerPowerWatts || 350;
+    form.packagingCost.value = product.recipe?.packagingCost || 0;
+    form.extraCost.value = product.recipe?.extraCost || 0;
     form.querySelector('button[type="submit"]').textContent = 'Atualizar produto';
     form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
@@ -734,7 +856,9 @@
     form.material.value = filament.material || '';
     form.color.value = filament.color || '';
     form.brand.value = filament.brand || '';
+    form.initialWeightGrams.value = filament.initialWeightGrams || 1000;
     form.currentWeightGrams.value = filament.currentWeightGrams || 0;
+    form.rollCost.value = filament.rollCost || 0;
     form.querySelector('button[type="submit"]').textContent = 'Atualizar filamento';
     form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
@@ -934,7 +1058,14 @@
           targetCoverageDays: Math.max(1, Math.round(numberOr(data.targetCoverageDays, 10))),
           minStockBuffer: Math.max(0, Math.round(numberOr(data.minStockBuffer, 3))),
           shopeeAdvertisedStockLowAlert: Math.max(0, Math.round(numberOr(data.shopeeAdvertisedStockLowAlert, 5))),
-          maxBatchUnits: Math.max(1, Math.round(numberOr(data.maxBatchUnits, 60)))
+          maxBatchUnits: Math.max(1, Math.round(numberOr(data.maxBatchUnits, 60))),
+          electricityCostKwh: Math.max(0, numberOr(data.electricityCostKwh, 1.14)),
+          defaultMarkup: Math.max(0, numberOr(data.defaultMarkup, 2.5)),
+          shopeeFeePercent: Math.max(0, numberOr(data.shopeeFeePercent, 20)),
+          shopeeFixedFee: Math.max(0, numberOr(data.shopeeFixedFee, 5)),
+          expectedMonthlyRevenue: Math.max(0, numberOr(data.expectedMonthlyRevenue, 2200)),
+          fixedMonthlyCosts: Math.max(0, numberOr(data.fixedMonthlyCosts, 0)),
+          failurePercent: Math.max(0, numberOr(data.failurePercent, 10))
         };
         state.recommendations = [];
         state.lastSummary = '';

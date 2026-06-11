@@ -1,4 +1,4 @@
-const CACHE_NAME = 'freostock-ai-pwa-v2-supabase';
+const CACHE_NAME = 'freostock-ai-pwa-v3-precificacao';
 const APP_SHELL = [
   './',
   './index.html',

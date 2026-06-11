@@ -67,3 +67,10 @@ Fluxo correto:
 ```text
 PWA -> Supabase Auth/Banco -> Edge Function -> Shopee API
 ```
+
+
+## Atualização de precificação
+
+Esta versão adiciona a lógica da planilha de custos ao app: preço do rolo/kg do filamento, custo de energia, embalagem, custos fixos, falhas, markup, taxa Shopee e preço sugerido de venda.
+
+Antes de publicar, execute `supabase-patch.sql` no SQL Editor do Supabase.
