@@ -1,11 +1,11 @@
-const CACHE_NAME = 'freostock-ai-pwa-v3-precificacao';
+const CACHE_NAME = 'freostock-ai-pwa-v4-loginfix';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './config/supabase-config.js',
-  './assets/styles.css',
-  './assets/app.js',
+  './config/supabase-config.js?v=4-loginfix',
+  './assets/styles.css?v=4-loginfix',
+  './assets/app.js?v=4-loginfix',
   './assets/icon-192.png',
   './assets/icon-512.png'
 ];
@@ -35,7 +35,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).then((response) => {
+      return fetch(event.request, { cache: 'no-store' }).then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;

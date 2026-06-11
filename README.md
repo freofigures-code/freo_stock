@@ -74,3 +74,9 @@ PWA -> Supabase Auth/Banco -> Edge Function -> Shopee API
 Esta versão adiciona a lógica da planilha de custos ao app: preço do rolo/kg do filamento, custo de energia, embalagem, custos fixos, falhas, markup, taxa Shopee e preço sugerido de venda.
 
 Antes de publicar, execute `supabase-patch.sql` no SQL Editor do Supabase.
+
+
+## Correção v4-loginfix
+- Corrige o carregamento do JavaScript que impedia o clique em Entrar quando o arquivo app.js era publicado com escapeHtml quebrado.
+- Bump no cache do service worker para `freostock-ai-pwa-v4-loginfix`.
+- Adiciona `?v=4-loginfix` nos arquivos para evitar cache antigo no GitHub Pages/PWA.

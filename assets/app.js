@@ -19,7 +19,15 @@
   const formatNumber = (value, digits = 0) => numberOr(value).toLocaleString('pt-BR', { maximumFractionDigits: digits });
   const formatGrams = (value) => `${formatNumber(value, 1)}g`;
   const normalizeKey = (value) => String(value || '').trim().toUpperCase();
-  const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    if (code === 38) return '&amp;';
+    if (code === 60) return '&lt;';
+    if (code === 62) return '&gt;';
+    if (code === 34) return '&quot;';
+    if (code === 39) return '&#039;';
+    return ch;
+  });
   const toDateInput = (value) => String(value || '').slice(0, 10) || todayIso();
   const toIsoFromDate = (value) => `${toDateInput(value)}T12:00:00.000Z`;
 
@@ -91,6 +99,8 @@
   let deferredInstallPrompt = null;
 
   function toast(message) {
+    const authMessage = $('#authMessage');
+    if (authMessage && !currentUser) authMessage.textContent = message;
     const el = $('#toast');
     if (!el) return;
     el.textContent = message;
@@ -946,6 +956,7 @@
     const email = String(data.email || '').trim();
     const password = String(data.password || '');
     if (!email || !password) return toast('Preencha e-mail e senha.');
+    $('#authMessage').textContent = intent === 'signup' ? 'Criando conta...' : 'Entrando...';
     setBusy(true, intent === 'signup' ? 'Criando conta...' : 'Entrando...');
     try {
       const response = intent === 'signup'
@@ -958,6 +969,7 @@
         currentUser = response.data.user || response.data.session?.user || null;
         await loadData();
         toast('Login feito.');
+        $('#authMessage').textContent = 'Login feito.';
       }
     } catch (error) {
       handleError(error, 'Erro de autenticação.');
