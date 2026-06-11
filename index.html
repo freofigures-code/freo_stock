@@ -17,6 +17,24 @@
     <button id="dismissInstallBtn" class="icon-button" type="button" aria-label="Fechar">×</button>
   </div>
 
+  <section id="authSection" class="auth-screen">
+    <div class="auth-card">
+      <p class="eyebrow">FreoStock AI</p>
+      <h1>Entrar no app</h1>
+      <p class="subtitle">Use a mesma conta no celular e no PC. Os dados ficam salvos no Supabase.</p>
+      <form id="authForm" class="form" autocomplete="on">
+        <input name="email" type="email" placeholder="Seu e-mail" autocomplete="email" required />
+        <input name="password" type="password" placeholder="Senha" autocomplete="current-password" minlength="6" required />
+        <div class="row">
+          <button class="button primary full" type="submit" data-intent="login">Entrar</button>
+          <button class="button secondary full" type="submit" data-intent="signup">Criar conta</button>
+        </div>
+      </form>
+      <p id="authMessage" class="hint">Se o Supabase pedir confirmação de e-mail, confirme antes de entrar.</p>
+    </div>
+  </section>
+
+  <div id="appShell" hidden>
   <header class="topbar">
     <div class="brand-block">
       <p class="eyebrow">produção 3D + Shopee + filamento</p>
@@ -24,8 +42,14 @@
       <p class="subtitle">MVP PWA para decidir o que produzir usando vendas, estoque real e filamento disponível.</p>
     </div>
     <div class="top-actions">
+      <div class="account-pill">
+        <span id="userEmail"></span>
+        <small id="syncStatus">Dados salvos no Supabase</small>
+      </div>
+      <button id="refreshBtn" class="button tertiary" type="button">Atualizar</button>
       <button id="runBtn" class="button primary" type="button">Gerar recomendação</button>
       <button id="seedBtn" class="button secondary" type="button">Dados exemplo</button>
+      <button id="logoutBtn" class="button tertiary" type="button">Sair</button>
     </div>
   </header>
 
@@ -160,14 +184,18 @@
         <button class="button primary full" type="submit">Salvar regras</button>
       </form>
       <div class="api-box">
-        <h3>Próxima fase: Supabase + Shopee</h3>
-        <p>Esta versão não guarda chaves secretas no navegador. A conexão real deve entrar depois via Supabase Edge Function ou backend seguro.</p>
-        <code>App PWA → Supabase → Shopee/OpenAI</code>
+        <h3>Supabase conectado</h3>
+        <p>Produtos, filamentos, vendas e regras agora são salvos no banco online com login.</p>
+        <p>A próxima fase é ligar a Shopee por uma Edge Function segura, sem colocar chave secreta no navegador.</p>
+        <code>PWA → Supabase → Edge Function → Shopee/OpenAI</code>
       </div>
     </section>
   </main>
+  </div>
 
   <div id="toast" class="toast" role="status" hidden></div>
-  <script src="./assets/app.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config/supabase-config.js"></script>
+  <script src="./assets/app.js"></script>
 </body>
 </html>

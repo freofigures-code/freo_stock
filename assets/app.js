@@ -1,9 +1,16 @@
 (() => {
-  const STORAGE_KEY = 'freostock-ai-pwa-state-v1';
   const $ = (selector) => document.querySelector(selector);
 
+  const config = window.FREOSTOCK_SUPABASE || {};
+  const hasSupabaseConfig = Boolean(config.url && config.anonKey && window.supabase);
+  const db = hasSupabaseConfig ? window.supabase.createClient(config.url, config.anonKey) : null;
+
   const todayIso = () => new Date().toISOString().slice(0, 10);
-  const uid = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const daysAgo = (days) => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.toISOString().slice(0, 10);
+  };
   const numberOr = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -13,94 +20,97 @@
   const formatGrams = (value) => `${formatNumber(value, 1)}g`;
   const normalizeKey = (value) => String(value || '').trim().toUpperCase();
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+  const toDateInput = (value) => String(value || '').slice(0, 10) || todayIso();
+  const toIsoFromDate = (value) => `${toDateInput(value)}T12:00:00.000Z`;
 
-  const defaultState = () => ({
-    settings: {
-      demandWindowDays: 7,
-      targetCoverageDays: 10,
-      minStockBuffer: 3,
-      shopeeAdvertisedStockLowAlert: 5,
-      maxBatchUnits: 60
-    },
+  const defaultSettings = () => ({
+    demandWindowDays: 7,
+    targetCoverageDays: 10,
+    minStockBuffer: 3,
+    shopeeAdvertisedStockLowAlert: 5,
+    maxBatchUnits: 60
+  });
+
+  const emptyState = () => ({
+    settings: defaultSettings(),
+    products: [],
+    filaments: [],
+    sales: [],
+    recommendations: [],
+    alerts: [],
+    lastSummary: ''
+  });
+
+  const demoState = () => ({
+    settings: defaultSettings(),
     products: [
       {
-        id: 'prod-chaveiro-exu', sku: 'EXU-CHAVEIRO-PRETO', name: 'Chaveiro Exu Tranca Ruas', category: 'Chaveiro',
+        sku: 'EXU-CHAVEIRO-PRETO', name: 'Chaveiro Exu Tranca Ruas', category: 'Chaveiro',
         realStock: 5, shopeeAdvertisedStock: 999, salePrice: 24.9, estimatedMargin: 9.4, active: true,
         recipe: { material: 'PLA', color: 'Preto', gramsPerUnit: 18, wastePercent: 10, printTimeMinutes: 42 }
       },
       {
-        id: 'prod-suporte-celular', sku: 'SUP-CEL-BRANCO', name: 'Suporte de Celular Minimalista', category: 'Suporte',
+        sku: 'SUP-CEL-BRANCO', name: 'Suporte de Celular Minimalista', category: 'Suporte',
         realStock: 12, shopeeAdvertisedStock: 200, salePrice: 34.9, estimatedMargin: 12.5, active: true,
         recipe: { material: 'PLA', color: 'Branco', gramsPerUnit: 65, wastePercent: 8, printTimeMinutes: 130 }
       },
       {
-        id: 'prod-miniatura-vermelha', sku: 'MINI-VERMELHA', name: 'Miniatura Decorativa Vermelha', category: 'Miniatura',
+        sku: 'MINI-VERMELHA', name: 'Miniatura Decorativa Vermelha', category: 'Miniatura',
         realStock: 2, shopeeAdvertisedStock: 4, salePrice: 39.9, estimatedMargin: 15.2, active: true,
         recipe: { material: 'PLA', color: 'Vermelho', gramsPerUnit: 42, wastePercent: 15, printTimeMinutes: 95 }
       }
     ],
     filaments: [
-      { id: 'fil-pla-preto', material: 'PLA', color: 'Preto', brand: 'Genérico', currentWeightGrams: 720, active: true },
-      { id: 'fil-pla-branco', material: 'PLA', color: 'Branco', brand: 'Genérico', currentWeightGrams: 430, active: true },
-      { id: 'fil-pla-vermelho', material: 'PLA', color: 'Vermelho', brand: 'Genérico', currentWeightGrams: 1100, active: true }
+      { material: 'PLA', color: 'Preto', brand: 'Genérico', currentWeightGrams: 720, active: true },
+      { material: 'PLA', color: 'Branco', brand: 'Genérico', currentWeightGrams: 430, active: true },
+      { material: 'PLA', color: 'Vermelho', brand: 'Genérico', currentWeightGrams: 1100, active: true }
     ],
     sales: [
-      { id: 'sale-1', sku: 'EXU-CHAVEIRO-PRETO', quantity: 4, price: 24.9, soldAt: daysAgo(0) },
-      { id: 'sale-2', sku: 'EXU-CHAVEIRO-PRETO', quantity: 6, price: 24.9, soldAt: daysAgo(1) },
-      { id: 'sale-3', sku: 'EXU-CHAVEIRO-PRETO', quantity: 5, price: 24.9, soldAt: daysAgo(3) },
-      { id: 'sale-4', sku: 'SUP-CEL-BRANCO', quantity: 3, price: 34.9, soldAt: daysAgo(2) },
-      { id: 'sale-5', sku: 'MINI-VERMELHA', quantity: 7, price: 39.9, soldAt: daysAgo(1) },
-      { id: 'sale-6', sku: 'MINI-VERMELHA', quantity: 5, price: 39.9, soldAt: daysAgo(5) }
+      { sku: 'EXU-CHAVEIRO-PRETO', quantity: 4, price: 24.9, soldAt: daysAgo(0) },
+      { sku: 'EXU-CHAVEIRO-PRETO', quantity: 6, price: 24.9, soldAt: daysAgo(1) },
+      { sku: 'EXU-CHAVEIRO-PRETO', quantity: 5, price: 24.9, soldAt: daysAgo(3) },
+      { sku: 'SUP-CEL-BRANCO', quantity: 3, price: 34.9, soldAt: daysAgo(2) },
+      { sku: 'MINI-VERMELHA', quantity: 7, price: 39.9, soldAt: daysAgo(1) },
+      { sku: 'MINI-VERMELHA', quantity: 5, price: 39.9, soldAt: daysAgo(5) }
     ],
     recommendations: [],
     alerts: [],
     lastSummary: ''
   });
 
-  function daysAgo(days) {
-    const d = new Date();
-    d.setDate(d.getDate() - days);
-    return d.toISOString().slice(0, 10);
-  }
-
-  let state = loadState();
+  let state = emptyState();
+  let currentUser = null;
+  let isBusy = false;
   let deferredInstallPrompt = null;
-
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultState();
-      const parsed = JSON.parse(raw);
-      return migrateState(parsed);
-    } catch (error) {
-      console.warn('Falha ao carregar dados locais.', error);
-      return defaultState();
-    }
-  }
-
-  function migrateState(input) {
-    const base = defaultState();
-    return {
-      settings: { ...base.settings, ...(input.settings || {}) },
-      products: Array.isArray(input.products) ? input.products : base.products,
-      filaments: Array.isArray(input.filaments) ? input.filaments : base.filaments,
-      sales: Array.isArray(input.sales) ? input.sales : base.sales,
-      recommendations: Array.isArray(input.recommendations) ? input.recommendations : [],
-      alerts: Array.isArray(input.alerts) ? input.alerts : [],
-      lastSummary: input.lastSummary || ''
-    };
-  }
-
-  function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state, null, 2));
-  }
 
   function toast(message) {
     const el = $('#toast');
+    if (!el) return;
     el.textContent = message;
     el.hidden = false;
     clearTimeout(window.__toastTimer);
-    window.__toastTimer = setTimeout(() => { el.hidden = true; }, 3000);
+    window.__toastTimer = setTimeout(() => { el.hidden = true; }, 3500);
+  }
+
+  function setBusy(value, label = 'Sincronizando...') {
+    isBusy = value;
+    const status = $('#syncStatus');
+    if (status) status.textContent = value ? label : (currentUser ? 'Dados salvos no Supabase' : 'Faça login para usar');
+    document.body.classList.toggle('is-busy', value);
+  }
+
+  function requireLogin() {
+    if (!currentUser) throw new Error('Faça login antes de continuar.');
+  }
+
+  function handleError(error, fallback = 'Erro inesperado.') {
+    console.error(error);
+    toast(error?.message || fallback);
+  }
+
+  function unwrap(response) {
+    if (response.error) throw response.error;
+    return response.data;
   }
 
   function formToObject(form) {
@@ -145,7 +155,7 @@
     return map;
   }
 
-  function runRecommendations() {
+  function buildRecommendations() {
     const settings = state.settings;
     const demandWindowDays = Math.max(1, numberOr(settings.demandWindowDays, 7));
     const targetCoverageDays = Math.max(1, numberOr(settings.targetCoverageDays, 10));
@@ -231,12 +241,7 @@
       return (rank[b.action] - rank[a.action]) || (prio[b.priority] - prio[a.priority]) || (b.score - a.score);
     });
 
-    state.recommendations = recommendations;
-    state.alerts = alerts;
-    state.lastSummary = buildSummary(recommendations, alerts);
-    saveState();
-    render();
-    toast('Recomendação gerada.');
+    return { recommendations, alerts, summary: buildSummary(recommendations, alerts) };
   }
 
   function buildSummary(rows, alerts) {
@@ -259,13 +264,347 @@
     return lines.join('\n');
   }
 
+  async function loadData() {
+    requireLogin();
+    setBusy(true, 'Carregando dados...');
+    try {
+      const [cfgRes, productRes, stockRes, recipeRes, filamentRes, salesRes] = await Promise.all([
+        db.from('configuracoes').select('*').eq('user_id', currentUser.id).maybeSingle(),
+        db.from('produtos').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true }),
+        db.from('estoque_real').select('*').eq('user_id', currentUser.id),
+        db.from('receitas_producao').select('*').eq('user_id', currentUser.id),
+        db.from('filamentos').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true }),
+        db.from('vendas').select('*').eq('user_id', currentUser.id).order('vendido_em', { ascending: false }).limit(500)
+      ]);
+      if (cfgRes.error && cfgRes.error.code !== 'PGRST116') throw cfgRes.error;
+      const productRows = unwrap(productRes) || [];
+      const stockRows = unwrap(stockRes) || [];
+      const recipeRows = unwrap(recipeRes) || [];
+      const filamentRows = unwrap(filamentRes) || [];
+      const saleRows = unwrap(salesRes) || [];
+
+      const stockByProduct = new Map(stockRows.map((row) => [row.produto_id, row]));
+      const recipeByProduct = new Map(recipeRows.map((row) => [row.produto_id, row]));
+
+      const settings = cfgRes.data ? {
+        demandWindowDays: cfgRes.data.dias_analise ?? 7,
+        targetCoverageDays: cfgRes.data.dias_cobertura_desejada ?? 10,
+        minStockBuffer: cfgRes.data.estoque_minimo_padrao ?? 3,
+        shopeeAdvertisedStockLowAlert: cfgRes.data.alerta_estoque_shopee_minimo ?? 5,
+        maxBatchUnits: cfgRes.data.maximo_lote_recomendado ?? 60
+      } : defaultSettings();
+
+      state = {
+        settings: { ...defaultSettings(), ...settings },
+        products: productRows.map((p) => {
+          const stock = stockByProduct.get(p.id) || {};
+          const recipe = recipeByProduct.get(p.id) || {};
+          return {
+            id: p.id,
+            sku: p.sku || '',
+            name: p.nome || '',
+            category: p.categoria || '',
+            shopeeItemId: p.shopee_item_id || '',
+            shopeeModelId: p.shopee_model_id || '',
+            realStock: numberOr(stock.quantidade_pronta),
+            reservedStock: numberOr(stock.quantidade_reservada),
+            shopeeAdvertisedStock: numberOr(p.estoque_anunciado_shopee),
+            salePrice: numberOr(p.preco_venda),
+            estimatedMargin: numberOr(p.margem_estimada),
+            active: p.ativo !== false,
+            recipe: {
+              id: recipe.id,
+              material: recipe.material || '',
+              color: recipe.cor || '',
+              gramsPerUnit: numberOr(recipe.gramas_por_unidade),
+              wastePercent: numberOr(recipe.perda_percentual, 10),
+              printTimeMinutes: numberOr(recipe.tempo_impressao_minutos)
+            }
+          };
+        }),
+        filaments: filamentRows.map((f) => ({
+          id: f.id,
+          material: f.material || '',
+          color: f.cor || '',
+          brand: f.marca || '',
+          currentWeightGrams: numberOr(f.peso_atual_g),
+          active: f.ativo !== false
+        })),
+        sales: saleRows.map((s) => ({
+          id: s.id,
+          sku: s.sku || '',
+          quantity: numberOr(s.quantidade, 1),
+          price: numberOr(s.preco_unitario),
+          grossValue: numberOr(s.valor_bruto),
+          marketplaceFee: numberOr(s.taxa_shopee),
+          netValue: numberOr(s.valor_liquido),
+          soldAt: toDateInput(s.vendido_em),
+          origin: s.origem || 'manual'
+        })),
+        recommendations: [],
+        alerts: [],
+        lastSummary: ''
+      };
+      render();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ensureSettings() {
+    const payload = {
+      user_id: currentUser.id,
+      dias_analise: Math.max(1, Math.round(numberOr(state.settings.demandWindowDays, 7))),
+      dias_cobertura_desejada: Math.max(1, Math.round(numberOr(state.settings.targetCoverageDays, 10))),
+      estoque_minimo_padrao: Math.max(0, Math.round(numberOr(state.settings.minStockBuffer, 3))),
+      alerta_estoque_shopee_minimo: Math.max(0, Math.round(numberOr(state.settings.shopeeAdvertisedStockLowAlert, 5))),
+      maximo_lote_recomendado: Math.max(1, Math.round(numberOr(state.settings.maxBatchUnits, 60)))
+    };
+    unwrap(await db.from('configuracoes').upsert(payload, { onConflict: 'user_id' }));
+  }
+
+  async function upsertProductRemote(data, id = null) {
+    requireLogin();
+    const sku = normalizeKey(data.sku);
+    const name = String(data.name || '').trim();
+    if (!sku || !name) throw new Error('Preencha SKU e nome do produto.');
+
+    const productPayload = {
+      user_id: currentUser.id,
+      sku,
+      nome: name,
+      categoria: String(data.category || '').trim() || null,
+      preco_venda: Math.max(0, numberOr(data.salePrice)),
+      margem_estimada: Math.max(0, numberOr(data.estimatedMargin)),
+      estoque_anunciado_shopee: Math.max(0, Math.round(numberOr(data.shopeeAdvertisedStock))),
+      ativo: true
+    };
+
+    let productId = id;
+    if (productId) {
+      unwrap(await db.from('produtos').update(productPayload).eq('id', productId).eq('user_id', currentUser.id));
+    } else {
+      const existing = state.products.find((p) => normalizeKey(p.sku) === sku);
+      if (existing?.id) {
+        productId = existing.id;
+        unwrap(await db.from('produtos').update(productPayload).eq('id', productId).eq('user_id', currentUser.id));
+      } else {
+        const created = unwrap(await db.from('produtos').insert(productPayload).select('id').single());
+        productId = created.id;
+      }
+    }
+
+    unwrap(await db.from('estoque_real').upsert({
+      user_id: currentUser.id,
+      produto_id: productId,
+      quantidade_pronta: Math.max(0, Math.round(numberOr(data.realStock))),
+      quantidade_reservada: 0
+    }, { onConflict: 'user_id,produto_id' }));
+
+    unwrap(await db.from('receitas_producao').upsert({
+      user_id: currentUser.id,
+      produto_id: productId,
+      material: String(data.material || '').trim() || 'PLA',
+      cor: String(data.color || '').trim() || 'Sem cor',
+      gramas_por_unidade: Math.max(0, numberOr(data.gramsPerUnit)),
+      perda_percentual: Math.max(0, numberOr(data.wastePercent, 10)),
+      tempo_impressao_minutos: Math.max(0, Math.round(numberOr(data.printTimeMinutes))),
+      ativo: true
+    }, { onConflict: 'user_id,produto_id' }));
+  }
+
+  async function deleteProductRemote(id) {
+    requireLogin();
+    unwrap(await db.from('produtos').delete().eq('id', id).eq('user_id', currentUser.id));
+  }
+
+  async function upsertFilamentRemote(data, id = null) {
+    requireLogin();
+    const material = String(data.material || '').trim();
+    const color = String(data.color || '').trim();
+    if (!material || !color) throw new Error('Preencha material e cor.');
+    const payload = {
+      user_id: currentUser.id,
+      material,
+      cor: color,
+      marca: String(data.brand || '').trim() || null,
+      peso_atual_g: Math.max(0, numberOr(data.currentWeightGrams)),
+      ativo: true
+    };
+    if (id) unwrap(await db.from('filamentos').update(payload).eq('id', id).eq('user_id', currentUser.id));
+    else unwrap(await db.from('filamentos').insert(payload));
+  }
+
+  async function deleteFilamentRemote(id) {
+    requireLogin();
+    unwrap(await db.from('filamentos').delete().eq('id', id).eq('user_id', currentUser.id));
+  }
+
+  async function addSaleRemote(data, origin = 'manual') {
+    requireLogin();
+    const sku = normalizeKey(data.sku);
+    const quantity = Math.max(1, Math.round(numberOr(data.quantity, 1)));
+    const price = Math.max(0, numberOr(data.price));
+    if (!sku) throw new Error('Preencha o SKU da venda.');
+    const product = state.products.find((p) => normalizeKey(p.sku) === sku);
+    unwrap(await db.from('vendas').insert({
+      user_id: currentUser.id,
+      origem: origin,
+      produto_id: product?.id || null,
+      sku,
+      nome_produto_snapshot: product?.name || null,
+      quantidade: quantity,
+      preco_unitario: price,
+      valor_bruto: quantity * price,
+      valor_liquido: quantity * price,
+      status: 'concluido',
+      vendido_em: toIsoFromDate(data.soldAt || todayIso())
+    }));
+  }
+
+  async function deleteSaleRemote(id) {
+    requireLogin();
+    unwrap(await db.from('vendas').delete().eq('id', id).eq('user_id', currentUser.id));
+  }
+
+  async function saveRecommendationsRemote(recommendations) {
+    requireLogin();
+    await db.from('recomendacoes').delete().eq('user_id', currentUser.id).eq('status', 'pendente');
+    const periodEnd = todayIso();
+    const periodStartDate = new Date();
+    periodStartDate.setDate(periodStartDate.getDate() - Math.max(1, numberOr(state.settings.demandWindowDays, 7)));
+    const periodStart = periodStartDate.toISOString().slice(0, 10);
+    const rows = recommendations
+      .filter((r) => r.productId)
+      .map((r) => ({
+        user_id: currentUser.id,
+        produto_id: r.productId,
+        periodo_inicio: periodStart,
+        periodo_fim: periodEnd,
+        vendas_periodo: Math.round(numberOr(r.recentSales)),
+        estoque_real_atual: Math.round(numberOr(r.realStock)),
+        quantidade_sugerida: Math.round(numberOr(r.suggestedUnits)),
+        filamento_necessario_g: numberOr(r.filamentNeeded),
+        filamento_disponivel_g: numberOr(r.availableFilamentBeforeAllocation),
+        prioridade: r.priority === 'Alta' ? 'alta' : r.priority === 'Média' ? 'media' : r.action === 'buy_filament' ? 'urgente' : 'baixa',
+        motivo: `${r.title}. ${r.reason}`,
+        status: 'pendente'
+      }));
+    if (rows.length) unwrap(await db.from('recomendacoes').insert(rows));
+  }
+
+  async function wipeUserData() {
+    requireLogin();
+    const tables = ['recomendacoes', 'vendas', 'historico_producao', 'movimentacoes_filamento', 'receitas_producao', 'estoque_real', 'produtos', 'filamentos'];
+    for (const table of tables) {
+      unwrap(await db.from(table).delete().eq('user_id', currentUser.id));
+    }
+  }
+
+  async function saveDemoDataRemote() {
+    requireLogin();
+    const demo = demoState();
+    state.settings = demo.settings;
+    await wipeUserData();
+    await ensureSettings();
+    for (const filament of demo.filaments) await upsertFilamentRemote(filament);
+    await loadData();
+    for (const product of demo.products) {
+      await upsertProductRemote({
+        sku: product.sku,
+        name: product.name,
+        category: product.category,
+        realStock: product.realStock,
+        shopeeAdvertisedStock: product.shopeeAdvertisedStock,
+        salePrice: product.salePrice,
+        estimatedMargin: product.estimatedMargin,
+        material: product.recipe.material,
+        color: product.recipe.color,
+        gramsPerUnit: product.recipe.gramsPerUnit,
+        wastePercent: product.recipe.wastePercent,
+        printTimeMinutes: product.recipe.printTimeMinutes
+      });
+    }
+    await loadData();
+    for (const sale of demo.sales) await addSaleRemote(sale, 'manual');
+    await loadData();
+  }
+
+  async function importBackupRemote(imported) {
+    requireLogin();
+    const data = {
+      ...emptyState(),
+      ...imported,
+      settings: { ...defaultSettings(), ...(imported.settings || {}) },
+      products: Array.isArray(imported.products) ? imported.products : [],
+      filaments: Array.isArray(imported.filaments) ? imported.filaments : [],
+      sales: Array.isArray(imported.sales) ? imported.sales : []
+    };
+    state.settings = data.settings;
+    await wipeUserData();
+    await ensureSettings();
+    for (const filament of data.filaments) await upsertFilamentRemote(filament);
+    await loadData();
+    for (const product of data.products) {
+      const recipe = product.recipe || {};
+      await upsertProductRemote({
+        sku: product.sku,
+        name: product.name,
+        category: product.category,
+        realStock: product.realStock,
+        shopeeAdvertisedStock: product.shopeeAdvertisedStock,
+        salePrice: product.salePrice,
+        estimatedMargin: product.estimatedMargin,
+        material: recipe.material,
+        color: recipe.color,
+        gramsPerUnit: recipe.gramsPerUnit,
+        wastePercent: recipe.wastePercent,
+        printTimeMinutes: recipe.printTimeMinutes
+      });
+    }
+    await loadData();
+    for (const sale of data.sales) await addSaleRemote(sale, sale.origin || 'manual');
+    await loadData();
+  }
+
+  async function runRecommendations() {
+    try {
+      requireLogin();
+      const result = buildRecommendations();
+      state.recommendations = result.recommendations;
+      state.alerts = result.alerts;
+      state.lastSummary = result.summary;
+      render();
+      setBusy(true, 'Salvando recomendação...');
+      await saveRecommendationsRemote(state.recommendations);
+      toast('Recomendação gerada e salva.');
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function render() {
+    renderAuthState();
+    if (!currentUser) return;
     renderMetrics();
     renderRecommendations();
     renderProducts();
     renderFilaments();
     renderSales();
     renderSettings();
+  }
+
+  function renderAuthState() {
+    const auth = $('#authSection');
+    const shell = $('#appShell');
+    const email = $('#userEmail');
+    const sync = $('#syncStatus');
+    if (auth) auth.hidden = Boolean(currentUser);
+    if (shell) shell.hidden = !currentUser;
+    if (email) email.textContent = currentUser?.email || '';
+    if (sync) sync.textContent = currentUser ? 'Dados salvos no Supabase' : 'Faça login para usar';
   }
 
   function renderMetrics() {
@@ -354,7 +693,7 @@
       <article class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(s.sku)}</div>
-          <div class="item-sub">${formatNumber(s.quantity)} unid. · ${formatBRL(s.price)} cada · ${escapeHtml(s.soldAt || '-')}</div>
+          <div class="item-sub">${formatNumber(s.quantity)} unid. · ${formatBRL(s.price)} cada · ${escapeHtml(s.soldAt || '-')} · ${escapeHtml(s.origin || 'manual')}</div>
         </div>
         <div class="item-actions">
           <button class="link-button danger" data-action="delete-sale" data-id="${escapeHtml(s.id)}" type="button">Excluir</button>
@@ -368,64 +707,6 @@
     for (const [key, value] of Object.entries(state.settings)) {
       if (form.elements[key]) form.elements[key].value = value;
     }
-  }
-
-  function upsertProduct(data, id = null) {
-    const product = {
-      id: id || uid('prod'),
-      sku: normalizeKey(data.sku),
-      name: String(data.name || '').trim(),
-      category: String(data.category || '').trim(),
-      realStock: Math.max(0, Math.round(numberOr(data.realStock))),
-      shopeeAdvertisedStock: Math.max(0, Math.round(numberOr(data.shopeeAdvertisedStock))),
-      salePrice: Math.max(0, numberOr(data.salePrice)),
-      estimatedMargin: Math.max(0, numberOr(data.estimatedMargin)),
-      active: true,
-      recipe: {
-        material: String(data.material || '').trim(),
-        color: String(data.color || '').trim(),
-        gramsPerUnit: Math.max(0, numberOr(data.gramsPerUnit)),
-        wastePercent: Math.max(0, numberOr(data.wastePercent)),
-        printTimeMinutes: Math.max(0, Math.round(numberOr(data.printTimeMinutes)))
-      }
-    };
-    if (!product.sku || !product.name) throw new Error('Preencha SKU e nome do produto.');
-    const idx = state.products.findIndex((p) => p.id === id || normalizeKey(p.sku) === product.sku);
-    if (idx >= 0) state.products[idx] = { ...state.products[idx], ...product, id: state.products[idx].id };
-    else state.products.push(product);
-    state.recommendations = [];
-    state.lastSummary = '';
-  }
-
-  function upsertFilament(data, id = null) {
-    const filament = {
-      id: id || uid('fil'),
-      material: String(data.material || '').trim(),
-      color: String(data.color || '').trim(),
-      brand: String(data.brand || '').trim(),
-      currentWeightGrams: Math.max(0, numberOr(data.currentWeightGrams)),
-      active: true
-    };
-    if (!filament.material || !filament.color) throw new Error('Preencha material e cor.');
-    const idx = state.filaments.findIndex((f) => f.id === id);
-    if (idx >= 0) state.filaments[idx] = filament;
-    else state.filaments.push(filament);
-    state.recommendations = [];
-    state.lastSummary = '';
-  }
-
-  function addSale(data) {
-    const sale = {
-      id: uid('sale'),
-      sku: normalizeKey(data.sku),
-      quantity: Math.max(1, Math.round(numberOr(data.quantity, 1))),
-      price: Math.max(0, numberOr(data.price)),
-      soldAt: data.soldAt || todayIso()
-    };
-    if (!sale.sku) throw new Error('Preencha o SKU da venda.');
-    state.sales.push(sale);
-    state.recommendations = [];
-    state.lastSummary = '';
   }
 
   function fillProductForm(product) {
@@ -472,34 +753,34 @@
     form.querySelector('button[type="submit"]').textContent = 'Salvar filamento';
   }
 
-  function importSalesJson() {
+  async function importSalesJson() {
     const raw = $('#salesJson').value.trim();
     if (!raw) throw new Error('Cole o JSON de vendas antes de importar.');
     const rows = JSON.parse(raw);
     if (!Array.isArray(rows)) throw new Error('O JSON precisa ser uma lista.');
-    rows.forEach(addSale);
+    setBusy(true, 'Importando vendas...');
+    for (const row of rows) await addSaleRemote(row, row.origin || 'manual');
     $('#salesJson').value = '';
-    saveState();
-    render();
+    await loadData();
     toast(`${rows.length} venda(s) importada(s).`);
   }
 
-  function simulateShopeePull() {
-    const products = state.products;
-    if (!products.length) return toast('Cadastre produtos antes de simular vendas.');
-    const samples = products.slice(0, 4).map((p) => ({
-      id: uid('sale'),
-      sku: p.sku,
-      quantity: Math.floor(Math.random() * 4) + 1,
-      price: numberOr(p.salePrice),
-      soldAt: daysAgo(Math.floor(Math.random() * Math.max(1, numberOr(state.settings.demandWindowDays))))
-    }));
-    state.sales.push(...samples);
-    state.recommendations = [];
-    state.lastSummary = '';
-    saveState();
-    render();
-    toast('Vendas simuladas adicionadas.');
+  async function simulateShopeePull() {
+    if (!state.products.length) return toast('Cadastre produtos antes de simular vendas.');
+    setBusy(true, 'Simulando vendas...');
+    try {
+      const samples = state.products.slice(0, 4).map((p) => ({
+        sku: p.sku,
+        quantity: Math.floor(Math.random() * 4) + 1,
+        price: numberOr(p.salePrice),
+        soldAt: daysAgo(Math.floor(Math.random() * Math.max(1, numberOr(state.settings.demandWindowDays))))
+      }));
+      for (const sale of samples) await addSaleRemote(sale, 'shopee');
+      await loadData();
+      toast('Vendas simuladas adicionadas no Supabase.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function exportBackup() {
@@ -516,28 +797,85 @@
 
   function importBackup(file) {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const imported = JSON.parse(String(reader.result || '{}'));
-        state = migrateState(imported);
-        saveState();
-        render();
-        toast('Backup importado.');
+        if (!confirm('Isso substitui os dados do seu usuário no Supabase pelos dados do backup. Continuar?')) return;
+        setBusy(true, 'Importando backup...');
+        await importBackupRemote(imported);
+        toast('Backup importado para o Supabase.');
       } catch (error) {
-        toast(`Erro no backup: ${error.message}`);
+        handleError(error, 'Erro ao importar backup.');
+      } finally {
+        setBusy(false);
       }
     };
     reader.readAsText(file);
   }
 
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    if (!hasSupabaseConfig) return toast('Supabase não foi configurado corretamente.');
+    const form = event.currentTarget;
+    const data = formToObject(form);
+    const intent = event.submitter?.dataset.intent || 'login';
+    const email = String(data.email || '').trim();
+    const password = String(data.password || '');
+    if (!email || !password) return toast('Preencha e-mail e senha.');
+    setBusy(true, intent === 'signup' ? 'Criando conta...' : 'Entrando...');
+    try {
+      const response = intent === 'signup'
+        ? await db.auth.signUp({ email, password })
+        : await db.auth.signInWithPassword({ email, password });
+      if (response.error) throw response.error;
+      if (intent === 'signup' && !response.data.session) {
+        toast('Conta criada. Confirme o e-mail se o Supabase pedir, depois entre.');
+      } else {
+        currentUser = response.data.user || response.data.session?.user || null;
+        await loadData();
+        toast('Login feito.');
+      }
+    } catch (error) {
+      handleError(error, 'Erro de autenticação.');
+    } finally {
+      setBusy(false);
+      renderAuthState();
+    }
+  }
+
+  async function logout() {
+    try {
+      setBusy(true, 'Saindo...');
+      await db.auth.signOut();
+      currentUser = null;
+      state = emptyState();
+      renderAuthState();
+      toast('Você saiu da conta.');
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function bindEvents() {
+    $('#authForm')?.addEventListener('submit', handleAuthSubmit);
+    $('#logoutBtn')?.addEventListener('click', logout);
+    $('#refreshBtn')?.addEventListener('click', async () => {
+      try { await loadData(); toast('Dados atualizados.'); } catch (error) { handleError(error); }
+    });
+
     $('#runBtn').addEventListener('click', runRecommendations);
-    $('#seedBtn').addEventListener('click', () => {
-      if (confirm('Isso substitui os dados atuais pelos dados de exemplo. Continuar?')) {
-        state = defaultState();
-        saveState();
-        render();
+    $('#seedBtn').addEventListener('click', async () => {
+      if (!confirm('Isso substitui seus dados atuais no Supabase pelos dados de exemplo. Continuar?')) return;
+      try {
+        setBusy(true, 'Criando dados de exemplo...');
+        await saveDemoDataRemote();
         toast('Dados de exemplo carregados.');
+      } catch (error) {
+        handleError(error);
+      } finally {
+        setBusy(false);
       }
     });
     $('#exportBtn').addEventListener('click', exportBackup);
@@ -546,102 +884,110 @@
       if (file) importBackup(file);
       event.target.value = '';
     });
-    $('#mockShopeeBtn').addEventListener('click', simulateShopeePull);
-    $('#importSalesBtn').addEventListener('click', () => {
-      try { importSalesJson(); } catch (error) { toast(error.message); }
-    });
+    $('#mockShopeeBtn').addEventListener('click', () => simulateShopeePull().catch(handleError));
+    $('#importSalesBtn').addEventListener('click', () => importSalesJson().catch(handleError));
 
-    $('#productForm').addEventListener('submit', (event) => {
+    $('#productForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
         const form = event.currentTarget;
-        upsertProduct(formToObject(form), form.dataset.editId || null);
-        saveState();
+        setBusy(true, 'Salvando produto...');
+        await upsertProductRemote(formToObject(form), form.dataset.editId || null);
         resetProductForm();
-        render();
-        toast('Produto salvo.');
-      } catch (error) { toast(error.message); }
+        await loadData();
+        toast('Produto salvo no Supabase.');
+      } catch (error) { handleError(error); }
+      finally { setBusy(false); }
     });
 
-    $('#filamentForm').addEventListener('submit', (event) => {
+    $('#filamentForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
         const form = event.currentTarget;
-        upsertFilament(formToObject(form), form.dataset.editId || null);
-        saveState();
+        setBusy(true, 'Salvando filamento...');
+        await upsertFilamentRemote(formToObject(form), form.dataset.editId || null);
         resetFilamentForm();
-        render();
-        toast('Filamento salvo.');
-      } catch (error) { toast(error.message); }
+        await loadData();
+        toast('Filamento salvo no Supabase.');
+      } catch (error) { handleError(error); }
+      finally { setBusy(false); }
     });
 
-    $('#saleForm').addEventListener('submit', (event) => {
+    $('#saleForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
-        addSale(formToObject(event.currentTarget));
-        saveState();
+        setBusy(true, 'Salvando venda...');
+        await addSaleRemote(formToObject(event.currentTarget), 'manual');
         event.currentTarget.reset();
-        render();
-        toast('Venda adicionada.');
-      } catch (error) { toast(error.message); }
+        await loadData();
+        toast('Venda adicionada no Supabase.');
+      } catch (error) { handleError(error); }
+      finally { setBusy(false); }
     });
 
-    $('#settingsForm').addEventListener('submit', (event) => {
+    $('#settingsForm').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const data = formToObject(event.currentTarget);
-      state.settings = {
-        demandWindowDays: Math.max(1, Math.round(numberOr(data.demandWindowDays, 7))),
-        targetCoverageDays: Math.max(1, Math.round(numberOr(data.targetCoverageDays, 10))),
-        minStockBuffer: Math.max(0, Math.round(numberOr(data.minStockBuffer, 3))),
-        shopeeAdvertisedStockLowAlert: Math.max(0, Math.round(numberOr(data.shopeeAdvertisedStockLowAlert, 5))),
-        maxBatchUnits: Math.max(1, Math.round(numberOr(data.maxBatchUnits, 60)))
-      };
-      state.recommendations = [];
-      state.lastSummary = '';
-      saveState();
-      render();
-      toast('Regras salvas.');
-    });
-
-    document.body.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-action]');
-      if (!button) return;
-      const action = button.dataset.action;
-      const id = button.dataset.id;
-      if (action === 'edit-product') {
-        const product = state.products.find((p) => p.id === id);
-        if (product) fillProductForm(product);
-      }
-      if (action === 'delete-product') {
-        const product = state.products.find((p) => p.id === id);
-        if (product && confirm(`Excluir produto "${product.name}"?`)) {
-          state.products = state.products.filter((p) => p.id !== id);
-          state.recommendations = [];
-          state.lastSummary = '';
-          saveState();
-          render();
-        }
-      }
-      if (action === 'edit-filament') {
-        const filament = state.filaments.find((f) => f.id === id);
-        if (filament) fillFilamentForm(filament);
-      }
-      if (action === 'delete-filament') {
-        const filament = state.filaments.find((f) => f.id === id);
-        if (filament && confirm(`Excluir filamento "${filament.material} ${filament.color}"?`)) {
-          state.filaments = state.filaments.filter((f) => f.id !== id);
-          state.recommendations = [];
-          state.lastSummary = '';
-          saveState();
-          render();
-        }
-      }
-      if (action === 'delete-sale') {
-        state.sales = state.sales.filter((s) => s.id !== id);
+      try {
+        const data = formToObject(event.currentTarget);
+        state.settings = {
+          demandWindowDays: Math.max(1, Math.round(numberOr(data.demandWindowDays, 7))),
+          targetCoverageDays: Math.max(1, Math.round(numberOr(data.targetCoverageDays, 10))),
+          minStockBuffer: Math.max(0, Math.round(numberOr(data.minStockBuffer, 3))),
+          shopeeAdvertisedStockLowAlert: Math.max(0, Math.round(numberOr(data.shopeeAdvertisedStockLowAlert, 5))),
+          maxBatchUnits: Math.max(1, Math.round(numberOr(data.maxBatchUnits, 60)))
+        };
         state.recommendations = [];
         state.lastSummary = '';
-        saveState();
-        render();
+        setBusy(true, 'Salvando regras...');
+        await ensureSettings();
+        await loadData();
+        toast('Regras salvas no Supabase.');
+      } catch (error) { handleError(error); }
+      finally { setBusy(false); }
+    });
+
+    document.body.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-action]');
+      if (!button || isBusy) return;
+      const action = button.dataset.action;
+      const id = button.dataset.id;
+      try {
+        if (action === 'edit-product') {
+          const product = state.products.find((p) => p.id === id);
+          if (product) fillProductForm(product);
+        }
+        if (action === 'delete-product') {
+          const product = state.products.find((p) => p.id === id);
+          if (product && confirm(`Excluir produto "${product.name}"?`)) {
+            setBusy(true, 'Excluindo produto...');
+            await deleteProductRemote(id);
+            await loadData();
+            toast('Produto excluído.');
+          }
+        }
+        if (action === 'edit-filament') {
+          const filament = state.filaments.find((f) => f.id === id);
+          if (filament) fillFilamentForm(filament);
+        }
+        if (action === 'delete-filament') {
+          const filament = state.filaments.find((f) => f.id === id);
+          if (filament && confirm(`Excluir filamento "${filament.material} ${filament.color}"?`)) {
+            setBusy(true, 'Excluindo filamento...');
+            await deleteFilamentRemote(id);
+            await loadData();
+            toast('Filamento excluído.');
+          }
+        }
+        if (action === 'delete-sale') {
+          setBusy(true, 'Excluindo venda...');
+          await deleteSaleRemote(id);
+          await loadData();
+          toast('Venda excluída.');
+        }
+      } catch (error) {
+        handleError(error);
+      } finally {
+        setBusy(false);
       }
     });
   }
@@ -679,8 +1025,37 @@
     });
   }
 
-  bindEvents();
-  render();
-  registerServiceWorker();
-  setupInstallPrompt();
+  async function init() {
+    bindEvents();
+    setupInstallPrompt();
+    registerServiceWorker();
+    if (!hasSupabaseConfig) {
+      renderAuthState();
+      $('#authMessage').textContent = 'Supabase não foi carregado. Confira o arquivo config/supabase-config.js e sua conexão.';
+      return;
+    }
+
+    db.auth.onAuthStateChange(async (_event, session) => {
+      currentUser = session?.user || null;
+      if (currentUser) {
+        try { await loadData(); } catch (error) { handleError(error, 'Erro ao carregar dados.'); }
+      } else {
+        state = emptyState();
+        renderAuthState();
+      }
+    });
+
+    try {
+      const { data, error } = await db.auth.getSession();
+      if (error) throw error;
+      currentUser = data.session?.user || null;
+      if (currentUser) await loadData();
+      else renderAuthState();
+    } catch (error) {
+      handleError(error, 'Erro ao iniciar app.');
+      renderAuthState();
+    }
+  }
+
+  init();
 })();
