@@ -1,11 +1,8 @@
-const CACHE_NAME = 'freostock-ai-pwa-v4-loginfix';
+const CACHE_NAME = 'freostock-ai-pwa-v7-finalfix';
 const APP_SHELL = [
-  './',
-  './index.html',
   './manifest.webmanifest',
-  './config/supabase-config.js?v=4-loginfix',
-  './assets/styles.css?v=4-loginfix',
-  './assets/app.js?v=4-loginfix',
+  './config/supabase-config.js?v=7-finalfix',
+  './assets/styles.css?v=7-finalfix',
   './assets/icon-192.png',
   './assets/icon-512.png'
 ];
@@ -28,18 +25,26 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  const isDocument = event.request.mode === 'navigate' || event.request.destination === 'document' || url.pathname.endsWith('/index.html');
+  if (isDocument) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => response)
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request, { cache: 'no-store' }).then((response) => {
+    fetch(event.request, { cache: 'no-store' })
+      .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
-      }).catch(() => caches.match('./index.html'));
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });
